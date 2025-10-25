@@ -1,10 +1,12 @@
-import sqlite3
-con = sqlite3.connect('timers.db')
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-cur = con.cursor()
+SQLALCHEMY_DATABASE_URL = "sqlite:///./scheduler.db"  # SQLite database
 
-cur.execute(''' CREATE TABLE IF NOT EXISTS scheduling_time
-            (id int, task_name text, task_type varchar, 
-            process_name varchar, start_time datetime,
-            end_time datetime,
-            updated_at datetime)''')
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+ 
