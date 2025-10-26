@@ -1,42 +1,48 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-import threading
-import time
-import psutil
+from sqlalchemy.orm import Session
+from database import SessionLocal, engine
+import models
+from datetime import datetime
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-timers = {}  # process_name -> remaining_seconds
 
-# Pydantic model for POST request
-class ProcessTimer(BaseModel):
-    name: str
-    seconds: int
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Background loop to monitor processes
-def monitor_loop():
-    while True:
-        for name, remaining in list(timers.items()):  # use list to avoid RuntimeError
-            procs = [p for p in psutil.process_iter(["name"]) if name.lower() in (p.info["name"] or "").lower()]
-            if procs and remaining > 0:
-                timers[name] -= 1
-                if timers[name] <= 0:
-                    for p in procs:
-                        try:
-                            p.terminate()
-                        except Exception as e:
-                            print(f"Failed to terminate {p.info['name']}: {e}")
-                    timers.pop(name)  # remove timer after termination
-        time.sleep(1)
+# Pydantic model for validating input
+class TaskSchema(BaseModel):
+    task_name: str
+    task_type: str
+    process_name: str = None
+    file_path: str = None
+    start_time: datetime
+    end_time: datetime
+    interval_seconds: int = 0
 
-threading.Thread(target=monitor_loop, daemon=True).start()
-
-# GET all timers
-@app.get("/processes")
-def get_processes():
-    return timers
-
-# POST a new process timer using JSON
-@app.post("/processes")
-def add_process(timer: ProcessTimer):
-    timers[timer.name] = timer.seconds
-    return {"status": "added", "name": timer.name, "time": timer.seconds}
+@app.post("/tasks")
+def create_task(task: TaskSchema, db: Session = Depends(get_db)):
+    db_task = models.Task(
+        task_name=task.task_name,
+        task_type=task.task_type,
+        process_name=task.process_name,
+        file_path=task.file_path,
+        start_time=task.start_time,
+        end_time=task.end_time,
+        interval_seconds=task.interval_seconds
+    )
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return {"message": "Task saved successfully", "task": {
+        "id": db_task.id,
+        "task_name": db_task.task_name,
+        "status": db_task.status
+    }}
